@@ -216,21 +216,52 @@ function compareSemver($a, $b)
 
 function compareListItem(ListItem $a, ListItem $b)
 {
-    // punctuation at the top (eg. "[")
-    // Care about numbers eg. 20 > 12 > 2 > 1
+    return strnatcmp($a->header->content, $b->header->content);
 }
 
 function mergeItemList(ItemList $a, ItemList $b)
 {
-    // Sort each list
-    // merge lists removing duplicates
+    $aItems = $a->items;
+    $bItems = $b->items;
 
-    //TODO: do the above psudo code not this temp hack
+    usort($aItems, 'compareListItem');
+    usort($bItems, 'compareListItem');
+
+    $items = [];
+    $lines = [];
+    while (count($aItems) + count($bItems) > 0) {
+        $comp =
+            (count($aItems) === 0 ? -1 : 0) +
+            (count($bItems) === 0 ? 1 : 0);
+
+        if ($comp === 0) {
+            $comp = strnatcmp($aItems[0]->header->content, $bItems[0]->header->content);
+        }
+
+        if ($comp >= 0) {
+            $next = array_shift($aItems);
+        } else {
+            $next = array_shift($bItems);
+        }
+
+        $items[] = $next;
+        $lines = array_merge($lines, $next->lines);
+    }
+
     return new ItemList(
         0,
-        array_merge($a->lines, $b->lines),
-        array_merge($a->items, $b->items),
+        $lines,
+        $items,
     );
+}
+
+function findList(array $parts)
+{
+    foreach ($parts as $part) {
+        if ($part instanceof ItemList) {
+            return $part;
+        }
+    }
 }
 
 $oursFile = 'test/ours.md';
@@ -291,8 +322,19 @@ while (!$ours->eof() && !$theirs->eof()) {
             $output->lines(["## ${significance}"]);
 
             //todo merge changelog notes
-            $output->lines($oursPart->content);
-            $output->lines($theirsPart->content);
+
+            $oursList = findList($oursPart->content);
+            $theirsList = findList($thiersPart->content);
+
+            if ($oursList === null && $thiersList === null) {
+                continue;
+            }
+
+            if ($oursList === null || $thiersList === null) {
+                $output->conflict($oursPart->lines, $theirsPart->lines);
+
+                continue;
+            }
 
             continue;
         }
@@ -326,6 +368,18 @@ while (!$ours->eof() && !$theirs->eof()) {
 
         //TODO: proper merge
         $output->lines($oursPart->lines);
+        $oursList = findList($oursPart->content);
+        $theirsList = findList($thiersPart->content);
+
+        if ($oursList === null && $thiersList === null) {
+            continue;
+        }
+
+        if ($oursList === null || $thiersList === null) {
+            $output->conflict($oursPart->content, $theirsPart->content);
+
+            continue;
+        }
     }
 }
 
